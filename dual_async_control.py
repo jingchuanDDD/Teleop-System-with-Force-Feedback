@@ -58,22 +58,46 @@ class AsyncServoBus(object):
         return model_number
 
     async def read_pos(self, servo_id):
-        async with self.lock:
-            pos, comm, err = self.packet.ReadPos(servo_id)
-        self._check(comm, err)
-        return pos
+        last_error = None
+        for _ in range(3):
+            try:
+                async with self.lock:
+                    pos, comm, err = self.packet.ReadPos(servo_id)
+                self._check(comm, err)
+                return pos
+            except IndexError as exc:
+                last_error = exc
+                await asyncio.sleep(0.002)
+        raise RuntimeError("[ID:%03d] short position response: %s" %
+                           (servo_id, last_error))
 
     async def read_pos_speed(self, servo_id):
-        async with self.lock:
-            pos, speed, comm, err = self.packet.ReadPosSpeed(servo_id)
-        self._check(comm, err)
-        return pos, speed
+        last_error = None
+        for _ in range(3):
+            try:
+                async with self.lock:
+                    pos, speed, comm, err = self.packet.ReadPosSpeed(servo_id)
+                self._check(comm, err)
+                return pos, speed
+            except IndexError as exc:
+                last_error = exc
+                await asyncio.sleep(0.002)
+        raise RuntimeError("[ID:%03d] short position/speed response: %s" %
+                           (servo_id, last_error))
 
     async def read_moving(self, servo_id):
-        async with self.lock:
-            moving, comm, err = self.packet.ReadMoving(servo_id)
-        self._check(comm, err)
-        return moving
+        last_error = None
+        for _ in range(3):
+            try:
+                async with self.lock:
+                    moving, comm, err = self.packet.ReadMoving(servo_id)
+                self._check(comm, err)
+                return moving
+            except IndexError as exc:
+                last_error = exc
+                await asyncio.sleep(0.002)
+        raise RuntimeError("[ID:%03d] short moving response: %s" %
+                           (servo_id, last_error))
 
     async def wait_until_position(self, servo_id, target_position, poll_interval,
                                   timeout, position_tolerance):

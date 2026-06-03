@@ -1,0 +1,21 @@
+{
+  "baudrate": 1000000,
+  "deadband": 5,
+  "direction": 1,
+  "filter_alpha": 0.4,
+  "follower_center": 2047,
+  "follower_id": 1,
+  "follower_baudrate": 1000000,
+  "follower_max": 4096,
+  "follower_min": 0,
+  "follower_model": 777,
+  "follower_port": "COM16",
+  "gain": 1.0,
+  "leader_center": 2048,
+  "leader_id": 2,
+  "leader_baudrate": 1000000,
+  "leader_model": 777,
+  "leader_port": "COM17",
+  "model": "sms_sts",
+  "port": "COM16"
+}
