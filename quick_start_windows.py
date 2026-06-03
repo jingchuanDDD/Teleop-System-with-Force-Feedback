@@ -67,8 +67,13 @@ def ping(args):
 
 
 def move(args):
+    """
+    Move the servo to a position, then back, then to the original position.
+    """
+    # initialize port and packet handler
     port, packet = open_bus(args.port, args.baudrate, args.model)
     try:
+        # read current position
         pos, comm, err = packet.ReadPos(args.id)
         if comm != COMM_SUCCESS:
             print(packet.getTxRxResult(comm))
@@ -76,12 +81,13 @@ def move(args):
         if err != 0:
             print(packet.getRxPacketError(err))
             return 1
-
+        # target positions are current +/- delta, clamped to [0, 4095]
         low = max(0, pos - args.delta)
         high = min(4095, pos + args.delta)
         print("Current position: %d; moving to %d then %d" % (pos, high, low))
 
         for target in [high, low, pos]:
+            # WritePosEx takes position, speed, and acceleration. Speed and acceleration are optional but recommended to avoid abrupt starts/stops.
             comm, err = packet.WritePosEx(args.id, target, args.speed, args.acc)
             if comm != COMM_SUCCESS:
                 print(packet.getTxRxResult(comm))

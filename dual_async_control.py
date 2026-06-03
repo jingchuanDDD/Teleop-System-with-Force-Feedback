@@ -35,6 +35,9 @@ class AsyncServoBus(object):
         self.lock = asyncio.Lock()
 
     async def __aenter__(self):
+        """
+        上下文管理器入口方法：Open the port and initialize the packet handler.
+        """
         self.port = PortHandler(self.port_name)
         self.packet = HANDLERS[self.model](self.port)
         if not self.port.openPort():
@@ -66,6 +69,30 @@ class AsyncServoBus(object):
         self._check(comm, err)
         return pos, speed
 
+    async def read_moving(self, servo_id):
+        async with self.lock:
+            moving, comm, err = self.packet.ReadMoving(servo_id)
+        self._check(comm, err)
+        return moving
+
+    async def wait_until_position(self, servo_id, target_position, poll_interval,
+                                  timeout, position_tolerance):
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        target_position = max(0, min(4095, target_position))
+
+        while True:
+            pos, speed = await self.read_pos_speed(servo_id)
+            moving = await self.read_moving(servo_id)
+            if moving == 0 and abs(pos - target_position) <= position_tolerance:
+                return
+            if loop.time() >= deadline:
+                raise RuntimeError(
+                    "[ID:%03d] move timeout: target=%d pos=%d speed=%d moving=%d" %
+                    (servo_id, target_position, pos, speed, moving)
+                )
+            await asyncio.sleep(poll_interval)
+
     async def write_pos(self, servo_id, position, speed, acc):
         position = max(0, min(4095, position))
         async with self.lock:
@@ -76,13 +103,14 @@ class AsyncServoBus(object):
     async def sync_write_pos(self, targets, speed, acc):
         async with self.lock:
             self.packet.groupSyncWrite.clearParam()
+            # 写缓冲区，先把所有舵机的目标位置都打包进同一个 sync write 数据包
             for servo_id, position in targets.items():
                 position = max(0, min(4095, position))
                 ok = self.packet.SyncWritePosEx(servo_id, position, speed, acc)
                 if not ok:
                     self.packet.groupSyncWrite.clearParam()
                     raise RuntimeError("[ID:%03d] groupSyncWrite addParam failed" % servo_id)
-
+            # 把刚才累积的所有参数组装成一个 sync write 包一次性发到串口总线
             comm = self.packet.groupSyncWrite.txPacket()
             self.packet.groupSyncWrite.clearParam()
 
@@ -96,20 +124,29 @@ class AsyncServoBus(object):
             raise RuntimeError(self.packet.getRxPacketError(err))
 
 
-async def servo_wave(bus, servo_id, delta, speed, acc, delay, cycles, phase_delay):
+async def servo_wave(bus, servo_id, delta, speed, acc, poll_interval,
+                     move_timeout, position_tolerance, cycles, phase_delay):
     await asyncio.sleep(phase_delay)
     start = await bus.read_pos(servo_id)
     high = max(0, min(4095, start + delta))
     low = max(0, min(4095, start - delta))
     print("[ID:%03d] start=%d high=%d low=%d" % (servo_id, start, high, low))
 
-    for _ in range(cycles):
+    for cycle in range(1, cycles + 1):
+        print("[ID:%03d] cycle %d/%d -> %d" %
+              (servo_id, cycle, cycles, high))
         await bus.write_pos(servo_id, high, speed, acc)
-        await asyncio.sleep(delay)
+        await bus.wait_until_position(servo_id, high, poll_interval,
+                                      move_timeout, position_tolerance)
+        print("[ID:%03d] cycle %d/%d -> %d" %
+              (servo_id, cycle, cycles, low))
         await bus.write_pos(servo_id, low, speed, acc)
-        await asyncio.sleep(delay)
+        await bus.wait_until_position(servo_id, low, poll_interval,
+                                      move_timeout, position_tolerance)
 
     await bus.write_pos(servo_id, start, speed, acc)
+    await bus.wait_until_position(servo_id, start, poll_interval,
+                                  move_timeout, position_tolerance)
     print("[ID:%03d] returned to %d" % (servo_id, start))
 
 
@@ -148,9 +185,11 @@ async def run_demo(args):
     async with AsyncServoBus(args.port, args.baudrate, args.model) as bus:
         await asyncio.gather(
             servo_wave(bus, args.id1, args.delta1, args.speed, args.acc,
-                       args.delay, args.cycles, 0.0),
+                       args.poll_interval, args.move_timeout,
+                       args.position_tolerance, args.cycles, 0.0),
             servo_wave(bus, args.id2, args.delta2, args.speed, args.acc,
-                       args.delay, args.cycles, args.phase),
+                       args.poll_interval, args.move_timeout,
+                       args.position_tolerance, args.cycles, args.phase),
         )
         print("async demo complete")
 
@@ -192,7 +231,10 @@ def main():
     demo_parser.add_argument("--delta2", type=int, default=150)
     demo_parser.add_argument("--speed", type=int, default=80)
     demo_parser.add_argument("--acc", type=int, default=20)
-    demo_parser.add_argument("--delay", type=float, default=0.8)
+    demo_parser.add_argument("--poll-interval", "--delay", dest="poll_interval",
+                             type=float, default=0.05)
+    demo_parser.add_argument("--move-timeout", type=float, default=10.0)
+    demo_parser.add_argument("--position-tolerance", type=int, default=10)
     demo_parser.add_argument("--cycles", type=int, default=2)
     demo_parser.add_argument("--phase", type=float, default=0.35)
     demo_parser.set_defaults(func=run_demo)
