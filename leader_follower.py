@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+"""
+稳定版遥操：
+python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 0 --acc 255 --report-interval 1 --timing --ignore-write-errors
+"""
 import argparse
 import asyncio
 import json
@@ -50,6 +54,11 @@ def validate_motion_args(speed, acc):
         raise RuntimeError("--speed must be in range 0..32767")
     if acc < 0 or acc > 255:
         raise RuntimeError("--acc must be in range 0..255 for sms_sts")
+
+
+def speed_help_text():
+    return ("follower position-mode speed limit. For STS/SMS position control, "
+            "0 appears to mean no speed limit / fastest in this setup.")
 
 
 def steps_per_second_to_rpm(steps_per_second):
@@ -240,6 +249,7 @@ async def run_status(args):
 
 
 async def run_follow(args):
+    # 参数覆盖：命令行参数覆盖配置文件中的对应项
     config = apply_follow_overrides(load_config(args.config), args)
     model = model_name(config, args)
     leader_id = config["leader_id"]
@@ -253,9 +263,11 @@ async def run_follow(args):
                           follower_baudrate(config, args),
                           model) as follower_bus:
         if args.disable_leader_torque and not args.dry_run:
+            # 正常遥操时leader要跟手，不能开扭矩
             await set_torque(leader_bus, leader_id, False)
             print("leader ID%d torque disabled" % leader_id)
         if not args.dry_run:
+            # 不只看数值就把follower的扭矩打开，观察跟随效果
             await set_torque(follower_bus, follower_id, True)
             print("follower ID%d torque enabled" % follower_id)
 
@@ -567,7 +579,7 @@ def main():
     parser.add_argument("--config", default=DEFAULT_CONFIG)
 
     subparsers = parser.add_subparsers(dest="command")
-
+    # 标定功能
     calibrate_parser = subparsers.add_parser("calibrate")
     calibrate_parser.add_argument("--port", default="COM16")
     calibrate_parser.add_argument("--leader-port")
@@ -607,7 +619,8 @@ def main():
     follow_parser.add_argument("--model", choices=sorted(TORQUE_ENABLE_ADDR))
     follow_parser.add_argument("--period", type=float, default=0.03)
     follow_parser.add_argument("--write-interval", type=float, default=0.0)
-    follow_parser.add_argument("--speed", type=int, default=300)
+    follow_parser.add_argument("--speed", type=int, default=0,
+                               help=speed_help_text())
     follow_parser.add_argument("--acc", type=int, default=50)
     follow_parser.add_argument("--direction", type=int, choices=[-1, 1])
     follow_parser.add_argument("--gain", type=float)
@@ -655,7 +668,8 @@ def main():
     sweep_parser.add_argument("--rate", type=float, default=600.0)
     sweep_parser.add_argument("--period", type=float, default=0.01)
     sweep_parser.add_argument("--write-interval", type=float, default=0.0)
-    sweep_parser.add_argument("--speed", type=int, default=1200)
+    sweep_parser.add_argument("--speed", type=int, default=0,
+                              help=speed_help_text())
     sweep_parser.add_argument("--acc", type=int, default=200)
     sweep_parser.add_argument("--deadband", type=int, default=1)
     sweep_parser.add_argument("--duration", type=float, default=8.0)

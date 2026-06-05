@@ -92,10 +92,43 @@ python leader_follower.py pid-write --p 32 --d 32 --i 0
 
 ## 遥操运行命令
 
+## 重要修正：位置模式下 speed=0 的含义
+
+后续测试发现，STS/SMS 位置模式下：
+
+```text
+speed=0 不是停止
+speed=0 更像“不限速 / 使用最快速度”
+```
+
+此前使用：
+
+```text
+speed=800
+```
+
+时，follower 实际上被限制了运行速度。快速拖动 leader 时出现的大延迟，很大一部分来自 follower 被这个非零速度参数限速。
+
+将遥操命令改为：
+
+```text
+speed=0
+```
+
+后，快速拖动 leader 时之前明显的 follower 延迟基本不再出现。
+
+因此当前遥操推荐优先使用：
+
+```powershell
+--speed 0 --acc 255
+```
+
+只有在需要故意降低 follower 速度、减小冲击或限制运动速度时，才使用非零 `speed` 值。
+
 ### 稳定版遥操命令
 
 ```powershell
-python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 800 --acc 255 --report-interval 1 --timing --ignore-write-errors
+python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 0 --acc 255 --report-interval 1 --timing --ignore-write-errors
 ```
 
 用途：
@@ -114,7 +147,7 @@ python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha
 ### 低延迟版遥操命令
 
 ```powershell
-python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 800 --acc 255 --tx-only --report-interval 1 --timing
+python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 0 --acc 255 --tx-only --report-interval 1 --timing
 ```
 
 用途：
@@ -155,10 +188,10 @@ python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha
 目标变化超过 1 step 才重新发命令。死区很小，灵敏度高。
 
 ```text
---speed 800
+--speed 0
 ```
 
-follower 运行速度参数。当前实测 `800` 左右效果较好。
+follower 位置模式运行速度限制。当前实验发现 `speed=0` 在该模式下并不是停止，而更像“不限速/最快速度”。`speed=800` 反而会限制 follower 速度。
 
 ```text
 --acc 255
@@ -210,7 +243,7 @@ STS3215-C018 空载最高速度约为 `45 rpm`，因此该手拖速度已经接�
 ### 基础 sweep-test
 
 ```powershell
-python leader_follower.py sweep-test --start 1300 --end 2800 --rate 300 --period 0 --write-interval 0.01 --speed 800 --acc 255 --tx-only --duration 5 --report-interval 1
+python leader_follower.py sweep-test --start 1300 --end 2800 --rate 300 --period 0 --write-interval 0.01 --speed 0 --acc 255 --tx-only --duration 5 --report-interval 1
 ```
 
 用途：
@@ -235,7 +268,9 @@ max_abs_err = 最大跟踪误差
 read_errors = follower 状态读取错误次数
 ```
 
-## PID 实验结果
+## PID 实验结果（历史 speed=800 条件）
+
+以下 PID 实验是在历史参数 `speed=800` 下完成的。由于后续确认 `speed=0` 在位置模式下更像“不限速/最快速度”，这些结果主要用于记录当时的调参过程；若后续继续优化 PID，建议在 `speed=0` 条件下重新测试。
 
 测试条件：
 
@@ -292,6 +327,8 @@ max_abs_err=203
 P=36 D=24 I=0
 ```
 
+注意：上述 PID 实验是在 `speed=800` 条件下完成的。后续发现位置模式下 `speed=0` 更像“不限速/最快速度”，快速拖动 leader 时延迟显著减少。因此，后续遥操推荐优先使用 `speed=0`，必要时再重新做 PID/sweep 对比。
+
 结论：
 
 - 简单增大 P 不一定改善跟随
@@ -299,7 +336,9 @@ P=36 D=24 I=0
 - 降低 D 到 24 后效果明显改善
 - 当前最佳小步测试结果是 `P=36 D=24 I=0`
 
-## 写入频率和控制周期实验
+## 写入频率和控制周期实验（历史 speed=800 条件）
+
+以下写入频率实验同样是在 `speed=800` 条件下完成，主要用于比较控制周期和写入节奏对误差的影响。当前实际遥操建议仍优先使用 `speed=0`。
 
 测试条件：
 
@@ -379,13 +418,13 @@ P=36 D=24 I=0
 稳定遥操：
 
 ```powershell
-python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 800 --acc 255 --report-interval 1 --timing --ignore-write-errors
+python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 0 --acc 255 --report-interval 1 --timing --ignore-write-errors
 ```
 
 低延迟遥操：
 
 ```powershell
-python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 800 --acc 255 --tx-only --report-interval 1 --timing
+python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 0 --acc 255 --tx-only --report-interval 1 --timing
 ```
 
 ## 后续方向：Impedance Control 和力反馈遥操

@@ -62,7 +62,7 @@ The follower is not operating under ideal no-load conditions. It has lever inert
 
 The manual states that the running speed field can use a default unit of `50 steps/s = 0.732 rpm`, and that setting speed above what the servo body can respond to causes lag.
 
-In practice, this setup does not behave well with either very low or very high speed values:
+In early tests with explicit nonzero speed limits, this setup did not behave well with either very low or very high speed values:
 
 - `speed=60/80/100`: very slow, severe lag
 - `speed=800`: best observed result in sweep tests
@@ -70,13 +70,17 @@ In practice, this setup does not behave well with either very low or very high s
 - `speed=1500`: worse than 800/1200
 - `speed=2500`: not reliably better; can increase lag
 
+Later testing showed that, in STS/SMS position mode on this setup, `speed=0` does not mean stop. It behaves like no speed limit / fastest motion. The previous `speed=800` setting was limiting follower speed.
+
 Useful current setting:
 
 ```powershell
-python leader_follower.py follow --period 0.01 --filter-alpha 1.0 --deadband 1 --speed 800 --acc 255 --tx-only --report-interval 1
+python leader_follower.py follow --period 0 --write-interval 0.01 --filter-alpha 1.0 --deadband 1 --speed 0 --acc 255 --tx-only --report-interval 1
 ```
 
-## Sweep Test Results
+## Sweep Test Results (Historical `speed=800` Tests)
+
+The following sweep tests were collected before the `speed=0` correction. They used explicit nonzero speed limits and are kept as historical tuning data.
 
 Automatic follower sweep test, range `1300..2800`, target rate `300 step/s`, `acc=255`, `tx-only`:
 
@@ -106,7 +110,7 @@ avg_abs_err=320.8
 max_abs_err=664
 ```
 
-This confirms that follower error grows when the target trajectory changes faster than the follower can physically track.
+These historical tests showed that follower error grows when the target trajectory changes faster than the follower can physically track under a nonzero speed limit. Later testing showed that `speed=0` removes that speed limit in this setup and greatly reduces the high-speed lag.
 
 ## Leader Speed Measurement
 
@@ -131,15 +135,17 @@ max=37.1 rpm
 
 ## Conclusion
 
-Follower lag is expected when the leader is moved too fast.
+Follower lag is expected when the leader is moved faster than the follower can physically track. However, one important correction was found later: the earlier large high-speed lag was partly caused by using a nonzero follower speed limit (`speed=800`).
 
-The leader can be hand-dragged near the servo's no-load speed, but the follower cannot perfectly track that motion while also carrying lever inertia and following through internal PID position control.
+In STS/SMS position mode on this setup, `speed=0` behaves like no speed limit / fastest motion. After switching the follower command to `speed=0`, the previously obvious lag during fast leader motion was largely reduced.
+
+The leader can still be hand-dragged near the servo's no-load speed, and the follower cannot exceed its physical speed, acceleration, load, and PID limits. But current operation should treat `speed=0` as the preferred fastest position-mode setting.
 
 For real-time teleoperation:
 
 - Move the leader more slowly for accurate tracking.
 - Use low-latency software parameters: no filter, small deadband, tx-only writes.
-- Use empirically good follower speed values around `800..1200`, not blindly larger values.
+- Use `speed=0` first for STS/SMS position mode, because it behaves like no speed limit / fastest motion in this setup. Use nonzero speed only when intentional speed limiting is needed.
 - Keep `acc` at the legal maximum `255` if aggressive response is acceptable.
 - Improve hardware if needed: reduce load/inertia, ensure sufficient 12 V current capacity, or use a faster/stronger actuator.
 - PID tuning may help, but should be changed carefully because it affects stability, overshoot, and oscillation.
